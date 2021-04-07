@@ -1,0 +1,74 @@
+#!/bin/bash
+
+#Find our distribution
+FULLPATH=`readlink -f $0`
+TOP=`dirname $FULLPATH`
+TOP=`dirname $TOP`
+IAM=`hostname --short`
+
+
+export XAUTH_PROTO=$(xauth list | grep `hostname -s` | grep :0 |tail -1 |cut -d' ' -f3)
+export XAUTH_KEY=$(xauth list | grep `hostname -s` | grep :0 |tail -1 |cut -d' ' -f5)
+#Do xauth list | grep unix:0
+#inside docker shell xauth add :0 MIT-MAGIC... digest..
+
+#user should be a member of video and render to get full access to gpu
+
+
+IMAGE=gearth:latest
+
+GIDS=( $(id -G) )  #All of my groups
+unset GIDS[0]      #remove primary group
+for g in "${GIDS[@]}"
+do
+    G+=" --group-add=$g"
+done
+
+#export BASH_ENV=$TOP/ADSDocker/env
+
+RM=""
+#RM=" --rm "
+
+U=""
+#U=" --user $(id -u):$(id -g) $G"
+
+VOLS=' --volume=/etc/group:/etc/group:ro '
+VOLS+='--volume=/etc/localtime:/etc/localtime:ro '
+#VOLS+='--volume=/etc/passwd:/etc/passwd:ro '
+#VOLS+='--volume=/etc/shadow:/etc/shadow:ro '
+#VOLS+='--volume=/etc/sudoers.d:/etc/sudoers.d:ro '
+VOLS+='--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw '
+VOLS+="--volume=/home/${USER}:/home/${USER} "
+#VOLS+='--volume=/opt:/opt '
+
+VOLS+="--device=/dev/dri "
+VOLS+="--device=/dev/vga_arbiter "
+
+ENV=' --env=DISPLAY '
+ENV+=' --env=XAUTH_PROTO '
+ENV+=' --env=XAUTH_KEY '
+
+
+NVS=( $(ls /dev/nvidia* 2>/dev/null) )
+for N in "${NVS[@]}"
+do
+   VOLS+="--device=$N "
+done
+
+#SEC=' --security-opt=label=disable --security-opt=seccomp=unconfined '
+SEC=''
+
+NET='--network=host '
+
+
+docker run $RM -it $U $ENV $VOLS --ipc="host" $NET \
+       $SEC \
+       -w="/home/${USER}" \
+       --hostname="$IAM-ge" \
+       --name="gearth" \
+       ${IMAGE} /bin/bash
+
+
+#${IMAGE} /bin/bash --rcfile "$TOP/env"
+
+

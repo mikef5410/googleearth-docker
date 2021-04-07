@@ -1,0 +1,6 @@
+. $HOME/.bashrc
+export PATH=$PATH:/opt/google/earth/pro
+xauth add :0 $XAUTH_PROTO $XAUTH_KEY
+googleearth
+rm -f ~/.googleearth/instance-running-lock
+exit
