@@ -10,7 +10,7 @@ RUN apt-get install -y libasound2 libc6 libcups2 libdbus-1-3 libfontconfig1 libf
 
 # Get: https://dl.google.com/dl/linux/direct/google-earth-pro-stable_7.3.3_amd64.deb and install it.
 
-RUN wget --no-check-certificate -o /tmp/google-earth.deb https://dl.google.com/dl/earth/client/current/google-earth-stable_current_amd64.deb
+RUN wget --no-check-certificate -O /tmp/google-earth.deb https://dl.google.com/dl/earth/client/current/google-earth-stable_current_amd64.deb
 RUN dpkg -i /tmp/google-earth.deb
 
 CMD /bin/bash
