@@ -4,18 +4,71 @@
 FULLPATH=`readlink -f $0`
 TOP=`dirname $FULLPATH`
 IAM=`hostname --short`
+CONTAINERHOSTNAME="${IAM}-ge"
+CONTAINERNAME=test
+DOCKER=podman
+IMAGE="gearth:latest"
+
+PRIVATENET=0
+RUNASROOT=0
+#function on_exit ()
+#{
+#    #rm -f $TEMPENV
+#}
+#
+#trap on_exit EXIT KILL TERM ERR
+
+#Option parsing
+while getopts 'Rh' opt; do
+    case "$opt" in
+        R)
+            RUNASROOT=1
+            PRIVATENET=0
+            ;;
+        ?|h)
+            echo "Usage: $(basename $0) [-R] [-h] [optional image identifier]"
+            echo "       -R to run a root shell. Will no automatically remove the container when done so you can commit it."
+            echo "       -h for this help"
+            exit 1
+            ;;
+    esac
+done
+shift "$(($OPTIND -1))"
+IMAGE=${1:-$IMAGE}
 
 
+# X Auth needs be taken care of in the container runtime
 export XAUTH_PROTO=$(xauth list | grep `hostname -s` | grep :0 |tail -1 |cut -d' ' -f3)
 export XAUTH_KEY=$(xauth list | grep `hostname -s` | grep :0 |tail -1 |cut -d' ' -f5)
-#Do xauth list | grep unix:0
-#inside docker shell xauth add :0 MIT-MAGIC... digest..
+
+#Calculate port for remote display
+dd=$(echo $DISPLAY | cut -d':' -f 2)
+dd=$(echo $dd | cut -d'.' -f 1)
+export DISPLAYNUM=$dd
+#echo $dd
+if [ $dd -ne 0 ]; then
+    dd=$(( $dd + 6000 ))
+    PF+=" --expose $dd "
+    echo "Forwarding port $dd for X windows"
+fi
+
+#Setup environment in the container runtime
+TEMPENV=$(mktemp -p $TOP tmpenv.XXXX)
+cat <<EOF >${TEMPENV}
+. $HOME/.bashrc
+export PATH=$PATH:${TOP}
+dd=$(echo \$DISPLAY | cut -d':' -f 2)
+xauth add :${dd} \$XAUTH_PROTO \$XAUTH_KEY
+#echo input sourced
+/usr/bin/google-earth-pro
+rm -f ~/.googleearth/instance-running-lock
+rm -f ${TEMPENV}  #remove myself!
+exit
+EOF
+#export BASH_ENV=${TEMPENV}
+
 
 #user should be a member of video and render to get full access to gpu
-
-
-IMAGE=gearth:latest
-
 GIDS=( $(id -G) )  #All of my groups
 unset GIDS[0]      #remove primary group
 for g in "${GIDS[@]}"
@@ -23,14 +76,18 @@ do
     G+=" --group-add=$g"
 done
 
-#export BASH_ENV=$TOP/ADSDocker/env
 
-#RM=""
-RM=" --rm "
+if [ $RUNASROOT -ne 0 ]; then
+    RM=""
+    U=""
+    echo "*** Running as root in the container. I will not remove the container on exit!"
+else
+    RM=" --rm "
+    U=" --user $(id -u):$(id -g) $G --userns=keep-id "
+fi
 
-#U=""
-U=" --user $(id -u):$(id -g) $G"
 
+### VOLUMES TO EXPOSE TO CONTAINER
 VOLS=' --volume=/etc/group:/etc/group:ro '
 VOLS+='--volume=/etc/localtime:/etc/localtime:ro '
 VOLS+='--volume=/etc/passwd:/etc/passwd:ro '
@@ -38,34 +95,54 @@ VOLS+='--volume=/etc/shadow:/etc/shadow:ro '
 VOLS+='--volume=/etc/sudoers.d:/etc/sudoers.d:ro '
 VOLS+='--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw '
 VOLS+="--volume=/home/${USER}:/home/${USER} "
-#VOLS+='--volume=/opt:/opt '
+VOLS+="--volume=${TOP}:${TOP} "
 
 VOLS+="--device=/dev/dri "
 VOLS+="--device=/dev/vga_arbiter "
 
+### ENV VARS TO PASS IN
 ENV=' --env=DISPLAY '
 ENV+=' --env=XAUTH_PROTO '
 ENV+=' --env=XAUTH_KEY '
 
-
+### NVIDIA CARD??
 NVS=( $(ls /dev/nvidia* 2>/dev/null) )
 for N in "${NVS[@]}"
 do
    VOLS+="--device=$N "
 done
 
+### SELINUX
 #SEC=' --security-opt=label=disable --security-opt=seccomp=unconfined '
 SEC=''
 
-NET='--network=host '
 
+### PRIVATE NETWORK?
+if [ $PRIVATENET -ne 0 ]; then
+    #Make sure our private net exists
+    $DOCKER network ls | grep hostonly > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo Create host-only network for docker
+        $DOCKER network create -d bridge --internal hostonly
+    fi
 
-docker run $RM -it $U $ENV $VOLS --ipc="host" $NET \
+    #Ports used for remote sim:
+    # ADS remote: 1537
+    # Momentum PVM: uses ssh
+    PF+=' -p 1537:1537 -p2222:22 '
+    NET='--network=hostonly --mac-address=3c:01:02:03:04:05  '
+    NET+=$PF
+    echo $NET
+else
+    NET='--network=host '
+fi
+
+### FINALLY MAKE THE CONTAINER AND RUN!
+$DOCKER run $RM -it $U $ENV $VOLS --ipc="host" $NET \
        $SEC \
        -w="/home/${USER}" \
-       --hostname="$IAM-ge" \
-       --name="gearth" \
-       ${IMAGE} /bin/bash --rcfile $TOP/env
-
+       --hostname="$CONTAINERHOSTNAME" \
+       --name="$CONTAINERNAME" \
+       ${IMAGE} /bin/bash --rcfile $TEMPENV
 
 
