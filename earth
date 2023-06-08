@@ -59,7 +59,7 @@ cat <<EOF >${TEMPENV}
 export PATH=$PATH:${TOP}
 dd=$(echo \$DISPLAY | cut -d':' -f 2)
 xauth add :${dd} \$XAUTH_PROTO \$XAUTH_KEY
-#echo input sourced
+echo input sourced
 /usr/bin/google-earth-pro
 rm -f ~/.googleearth/instance-running-lock
 rm -f ${TEMPENV}  #remove myself!
@@ -137,9 +137,14 @@ else
     NET='--network=host '
 fi
 
+# DETACH KEYS
+DET=" --detach-keys=ctrl-e,e"
+# This can also be done globally in ~/.config/containers/containers.conf
+
+
 ### FINALLY MAKE THE CONTAINER AND RUN!
 $DOCKER run $RM -it $U $ENV $VOLS --ipc="host" $NET \
-       $SEC \
+       $SEC $DET \
        -w="/home/${USER}" \
        --hostname="$CONTAINERHOSTNAME" \
        --name="$CONTAINERNAME" \
